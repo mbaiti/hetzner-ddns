@@ -1,10 +1,10 @@
 services:
-  hetzner-dyndns:
-    image: mbaiti/hetzner-dyndns:latest
-    container_name: hetzner-dyndns
+  hetzner-ddns:
+    image: mbaiti/hetzner-ddns:latest
+    container_name: hetzner-ddns
     restart: unless-stopped
     environment:
-      - HETZNER_CLOUD_API_TOKEN=dein_hetzner_cloud_api_token
-      - HETZNER_DNS_ZONE_NAME=deine_domain.com # Der Name deiner DNS-Zone (z.B. "example.com")
-      - HETZNER_DNS_RECORD_NAME=dein_subdomain_oder_@ # Der relative Name des A-Records (z.B. "myhost" für myhost.deine_domain.com oder "@" für deine_domain.com)
+      - HETZNER_CLOUD_API_TOKEN=your_hetzner_cloud_api_token
+      - HETZNER_DNS_ZONE_NAME=your-domain.com #The name of your DNS zone (e.g., "example.com")
+      - HETZNER_DNS_RECORD_NAME=subdomain_or_@ #e.g. "myhost" for myhost.your_domain.com or "@" for your_domain.com
       - CHECK_INTERVAL_SECONDS=300
