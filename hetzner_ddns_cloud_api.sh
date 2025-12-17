@@ -1,4 +1,5 @@
 #!/bin/bash
+set -x
 
 # Environment Variables
 HETZNER_CLOUD_API_TOKEN=${HETZNER_CLOUD_API_TOKEN}
