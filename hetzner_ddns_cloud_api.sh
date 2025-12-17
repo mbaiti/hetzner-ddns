@@ -66,31 +66,32 @@ update_record() {
   local RECORD_ID=$2
   local IP_ADDRESS=$3
 
-  log "INFO: Update record ‘$HETZNER_DNS_RECORD_NAME’ to $IP_ADDRESS in zone '$HETZNER_DNS_ZONE_NAME'."
+  log "INFO: Attempting to update record ‘$HETZNER_DNS_RECORD_NAME’ to $IP_ADDRESS in zone '$HETZNER_DNS_ZONE_NAME'."
 
-  RECORD_NAME_FOR_PATCH="$HETZNER_DNS_RECORD_NAME"
-  if [ "$HETZNER_DNS_RECORD_NAME" == "@" ]; then
-    RECORD_NAME_FOR_PATCH="@"
-  fi
-  
-  RESPONSE=$(curl -s -X PUT \
+  RR_NAME=$(echo "$RECORD_ID" | cut -d'/' -f1)
+  RR_TYPE=$(echo "$RECORD_ID" | cut -d'/' -f2)
+
+  RESPONSE=$(curl -s -X POST \
     -H "Authorization: Bearer $HETZNER_CLOUD_API_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{
-          "name": "'"$RECORD_NAME_FOR_PATCH"'",
-          "type": "A",
           "records": [
             { "value": "'"$IP_ADDRESS"'" }
-          ],
-          "ttl": 300
+          ]
         }' \
-    "https://api.hetzner.cloud/v1/zones/$ZONE_ID/rrsets/$RECORD_ID")
+    "https://api.hetzner.cloud/v1/zones/$ZONE_ID/rrsets/$RR_NAME/$RR_TYPE/actions/set_records")
 
-  if echo "$RESPONSE" | grep -q '"rrset"'; then
-    log "INFO: DNS entry for $HETZNER_DNS_RECORD_NAME successfully updated to $IP_ADDRESS."
-    return 0
+  if echo "$RESPONSE" | grep -q '"action"'; then 
+    ACTION_STATUS=$(echo "$RESPONSE" | jq -r '.action.status')
+    if [ "$ACTION_STATUS" == "running" ] || [ "$ACTION_STATUS" == "success" ]; then
+      log "INFO: DNS entry for $HETZNER_DNS_RECORD_NAME successfully updated to $IP_ADDRESS. Action Status: $ACTION_STATUS"
+      return 0
+    else
+      log "ERROR: DNS update action failed. Response: $RESPONSE"
+      return 1
+    fi
   else
-    log "ERROR: Error updating DNS record: $RESPONSE"
+    log "ERROR: Failed to update DNS record. Unexpected API response: $RESPONSE"
     return 1
   fi
 }
@@ -105,19 +106,19 @@ log "INFO: DNS Zone ID for '$HETZNER_DNS_ZONE_NAME': $ZONE_ID"
 # Get Record ID
 RECORD_ID=$(get_record_id "$ZONE_ID")
 if [ $? -ne 0 ]; then exit 1; fi
-log "INFO: DNS Record ID for '$HETZNER_DNS_RECORD_NAME': $RECORD_ID"
+log "INFO: Found DNS Record ID for '$HETZNER_DNS_RECORD_NAME': $RECORD_ID"
 
 while true; do
   PUBLIC_IP=$(curl -s https://ipv4.icanhazip.com)
 
   if [ -z "$PUBLIC_IP" ]; then
-    log "WARNING: Could not determine public IP address. Please try again."
+    log "WARNING: Could not determine public IP address. Retrying."
   elif [ "$PUBLIC_IP" != "$LAST_KNOWN_PUBLIC_IP" ]; then
     log "INFO: Public IP address has changed from $LAST_KNOWN_PUBLIC_IP to $PUBLIC_IP."
     if update_record "$ZONE_ID" "$RECORD_ID" "$PUBLIC_IP"; then
       LAST_KNOWN_PUBLIC_IP="$PUBLIC_IP"
     else
-      log "ERROR: Failed to update DNS record. Try again at the next interval."
+      log "ERROR: Failed to update DNS record. Will retry at the next interval."
     fi
   else
     log "DEBUG: Public IP address is $PUBLIC_IP, no change since last check."
