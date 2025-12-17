@@ -42,9 +42,10 @@ get_zone_id() {
 # Get Record ID
 get_record_id() {
   local ZONE_ID=$1
+  # KORREKTUR HIER: Endpunkt geändert zu /v1/zones/$ZONE_ID/rrsets
   RECORD_INFO=$(curl -s -X GET \
     -H "Authorization: Bearer $HETZNER_CLOUD_API_TOKEN" \
-    "https://api.hetzner.cloud/v1/rrsets?zone_id=$ZONE_ID")
+    "https://api.hetzner.cloud/v1/zones/$ZONE_ID/rrsets") # <<< Hier ist die Änderung
 
   # Build full hostname for matching in API response.
   # For Apex record ('@'), Hetzner API's 'name' field is the zone name itself.
@@ -80,6 +81,7 @@ update_record() {
     FULL_HOSTNAME_FOR_PATCH="$HETZNER_DNS_RECORD_NAME.$HETZNER_DNS_ZONE_NAME"
   fi
 
+  # KORREKTUR HIER: Endpunkt geändert zu /v1/zones/$ZONE_ID/rrsets/$RECORD_ID
   RESPONSE=$(curl -s -X PATCH \
     -H "Authorization: Bearer $HETZNER_CLOUD_API_TOKEN" \
     -H "Content-Type: application/json" \
@@ -91,7 +93,7 @@ update_record() {
           ],
           "ttl": 300
         }' \
-    "https://api.hetzner.cloud/v1/rrsets/$RECORD_ID")
+    "https://api.hetzner.cloud/v1/zones/$ZONE_ID/rrsets/$RECORD_ID") # <<< Hier ist die Änderung
 
   if echo "$RESPONSE" | grep -q '"rrset"'; then
     log "INFO: DNS entry for $HETZNER_DNS_RECORD_NAME successfully updated to $IP_ADDRESS."
