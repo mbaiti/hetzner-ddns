@@ -48,10 +48,9 @@ get_record_id() {
 
   RECORD_NAME_TO_MATCH="$HETZNER_DNS_RECORD_NAME"
   if [ "$HETZNER_DNS_RECORD_NAME" == "@" ]; then
-    RECORD_NAME_TO_MATCH="@" # Für den Apex Record ist das Name-Feld einfach "@"
+    RECORD_NAME_TO_MATCH="@"
   fi
 
-  # Der .id-Wert ist ein String (z.B. "ddns/A" oder "@/A"), was die API erwartet.
   RECORD_ID=$(echo "$RECORD_INFO" | jq -r '.rrsets[] | select(.name == "'"$RECORD_NAME_TO_MATCH"'") | select(.type == "A") | .id')
 
   if [ -z "$RECORD_ID" ] || [ "$RECORD_ID" == "null" ]; then
@@ -73,12 +72,12 @@ update_record() {
   if [ "$HETZNER_DNS_RECORD_NAME" == "@" ]; then
     RECORD_NAME_FOR_PATCH="@"
   fi
-
-  RESPONSE=$(curl -s -X PATCH \
+  
+  RESPONSE=$(curl -s -X PUT \
     -H "Authorization: Bearer $HETZNER_CLOUD_API_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{
-          "name": "'"$RECORD_NAME_FOR_PATCH"'", # Hier den relativen Namen verwenden
+          "name": "'"$RECORD_NAME_FOR_PATCH"'",
           "type": "A",
           "records": [
             { "value": "'"$IP_ADDRESS"'" }
