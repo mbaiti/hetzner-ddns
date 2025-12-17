@@ -3,8 +3,8 @@ set -x
 
 # Environment Variables
 HETZNER_CLOUD_API_TOKEN=${HETZNER_CLOUD_API_TOKEN}
-HETZNER_DNS_ZONE_NAME=${HETZNER_DNS_ZONE_NAME}
-HETZNER_DNS_RECORD_NAME=${HETZNER_DNS_RECORD_NAME}
+HETZNER_DNS_ZONE_NAME=${HETZNER_DNS_ZONE_NAME} # E.g., "example.com"
+HETZNER_DNS_RECORD_NAME=${HETZNER_DNS_RECORD_NAME} # E.g., "myhost" or "@" for the zone itself
 CHECK_INTERVAL_SECONDS=${CHECK_INTERVAL_SECONDS:-300}
 
 # Logging
@@ -24,15 +24,13 @@ log "Check interval: $CHECK_INTERVAL_SECONDS Seconds."
 log "DNS Zone Name: $HETZNER_DNS_ZONE_NAME"
 log "DNS Record Name: $HETZNER_DNS_RECORD_NAME"
 
-# check Zone ID
+# Check Zone ID
 get_zone_id() {
-  # KORREKTUR HIER: Endpunkt von /v1/dns_zones zu /v1/zones geändert
   ZONE_INFO=$(curl -s -X GET \
     -H "Authorization: Bearer $HETZNER_CLOUD_API_TOKEN" \
-    "https://api.hetzner.cloud/v1/zones?name=$HETZNER_DNS_ZONE_NAME") # <<< Hier ist die Änderung
+    "https://api.hetzner.cloud/v1/zones?name=$HETZNER_DNS_ZONE_NAME")
 
   ZONE_ID=$(echo "$ZONE_INFO" | jq -r '.zones[] | select(.name == "'"$HETZNER_DNS_ZONE_NAME"'") | .id')
-  # KORREKTUR HIER: .dns_zones[] zu .zones[] geändert, um der Response-Struktur zu entsprechen
 
   if [ -z "$ZONE_ID" ] || [ "$ZONE_ID" == "null" ]; then
     log "ERROR: DNS zone ‘$HETZNER_DNS_ZONE_NAME’ could not be found or API request failed: $ZONE_INFO"
@@ -41,20 +39,23 @@ get_zone_id() {
   echo "$ZONE_ID"
 }
 
-# get Record ID
+# Get Record ID
 get_record_id() {
   local ZONE_ID=$1
   RECORD_INFO=$(curl -s -X GET \
     -H "Authorization: Bearer $HETZNER_CLOUD_API_TOKEN" \
-    "https://api.hetzner.cloud/v1/dns_records?zone_id=$ZONE_ID")
+    "https://api.hetzner.cloud/v1/rrsets?zone_id=$ZONE_ID")
 
-  # build Hostname
-  FULL_HOSTNAME="$HETZNER_DNS_RECORD_NAME"
-  if [ "$HETZNER_DNS_RECORD_NAME" != "@" ]; then
-    FULL_HOSTNAME="$HETZNER_DNS_RECORD_NAME.$HETZNER_DNS_ZONE_NAME"
+  # Build full hostname for matching in API response.
+  # For Apex record ('@'), Hetzner API's 'name' field is the zone name itself.
+  FULL_HOSTNAME_FOR_MATCH="$HETZNER_DNS_RECORD_NAME"
+  if [ "$HETZNER_DNS_RECORD_NAME" == "@" ]; then
+    FULL_HOSTNAME_FOR_MATCH="$HETZNER_DNS_ZONE_NAME"
+  else
+    FULL_HOSTNAME_FOR_MATCH="$HETZNER_DNS_RECORD_NAME.$HETZNER_DNS_ZONE_NAME"
   fi
 
-  RECORD_ID=$(echo "$RECORD_INFO" | jq -r '.dns_records[] | select(.name == "'"$FULL_HOSTNAME"'") | select(.type == "A") | .id')
+  RECORD_ID=$(echo "$RECORD_INFO" | jq -r '.rrsets[] | select(.name == "'"$FULL_HOSTNAME_FOR_MATCH"'") | select(.type == "A") | .id')
 
   if [ -z "$RECORD_ID" ] || [ "$RECORD_ID" == "null" ]; then
     log "ERROR: DNS record ‘$HETZNER_DNS_RECORD_NAME’ (A-Record) in zone ‘$HETZNER_DNS_ZONE_NAME’ could not be found or API request failed: $RECORD_INFO"
@@ -63,7 +64,7 @@ get_record_id() {
   echo "$RECORD_ID"
 }
 
-# update record
+# Update record
 update_record() {
   local ZONE_ID=$1
   local RECORD_ID=$2
@@ -71,19 +72,28 @@ update_record() {
 
   log "INFO: Update record ‘$HETZNER_DNS_RECORD_NAME’ to $IP_ADDRESS in zone '$HETZNER_DNS_ZONE_NAME'."
 
-  RESPONSE=$(curl -s -X PUT \
+  # Build full hostname for the 'name' parameter in the PATCH request body
+  FULL_HOSTNAME_FOR_PATCH="$HETZNER_DNS_RECORD_NAME"
+  if [ "$HETZNER_DNS_RECORD_NAME" == "@" ]; then
+    FULL_HOSTNAME_FOR_PATCH="$HETZNER_DNS_ZONE_NAME"
+  else
+    FULL_HOSTNAME_FOR_PATCH="$HETZNER_DNS_RECORD_NAME.$HETZNER_DNS_ZONE_NAME"
+  fi
+
+  RESPONSE=$(curl -s -X PATCH \
     -H "Authorization: Bearer $HETZNER_CLOUD_API_TOKEN" \
     -H "Content-Type: application/json" \
     -d '{
-          "zone_id": '$ZONE_ID',
+          "name": "'"$FULL_HOSTNAME_FOR_PATCH"'",
           "type": "A",
-          "name": "'"$HETZNER_DNS_RECORD_NAME"'",
-          "value": "'"$IP_ADDRESS"'",
+          "records": [
+            { "value": "'"$IP_ADDRESS"'" }
+          ],
           "ttl": 300
         }' \
-    "https://api.hetzner.cloud/v1/dns_records/$RECORD_ID")
+    "https://api.hetzner.cloud/v1/rrsets/$RECORD_ID")
 
-  if echo "$RESPONSE" | grep -q '"dns_record"'; then
+  if echo "$RESPONSE" | grep -q '"rrset"'; then
     log "INFO: DNS entry for $HETZNER_DNS_RECORD_NAME successfully updated to $IP_ADDRESS."
     return 0
   else
@@ -94,11 +104,12 @@ update_record() {
 
 LAST_KNOWN_PUBLIC_IP=""
 
-# Get Zone
+# Get Zone ID
 ZONE_ID=$(get_zone_id)
 if [ $? -ne 0 ]; then exit 1; fi
 log "INFO: DNS Zone ID for '$HETZNER_DNS_ZONE_NAME': $ZONE_ID"
 
+# Get Record ID
 RECORD_ID=$(get_record_id "$ZONE_ID")
 if [ $? -ne 0 ]; then exit 1; fi
 log "INFO: DNS Record ID for '$HETZNER_DNS_RECORD_NAME': $RECORD_ID"
